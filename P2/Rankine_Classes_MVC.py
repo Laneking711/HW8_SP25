@@ -15,14 +15,9 @@ from matplotlib.figure import Figure
 class rankineModel():
     def __init__(self):
         '''
-        Constructor for rankine power cycle data (in the Model-View-Controller design pattern).  This class
-        is for storing data only.  The Controller class should update the model depending on input from the user.
+        Constructor for rankine power cycle data (in the Model-View-Controller design pattern).
+        This class is for storing data only. The Controller class should update the model depending on user input.
         The View class should display the model data depending on the desired output.
-        :param p_low: the low pressure isobar for the cycle in kPa
-        :param p_high: the high pressure isobar for the cycle in kPa
-        :param t_high: optional temperature for State1 (turbine inlet) in degrees C
-        :param eff_turbine: isentropic efficiency of the turbine
-        :param name: a convenient name
         '''
         self.p_low=None
         self.p_high=None
@@ -62,7 +57,6 @@ class rankineView():
     def selectQualityOrTHigh(self, Model=None):
         """
         Action to take when selecting one of the radio buttons for Quality or THigh
-        :return:
         """
         # region Code for P1.1
         SI = self.rb_SI.isChecked()
@@ -73,28 +67,46 @@ class rankineView():
             pass
             #JES Missing Code
             #step 1: get saturated properties at PHigh
+            satPropsHigh = Model.steam.getsatProps_p(Model.p_high)
             #step 2: convert the saturation temperature to proper units
+            T_sat = satPropsHigh.tsat  # in °C
+            if not SI:
+                T_sat = UC.C_to_F(T_sat)
             #step 3:  update the text in the le_TurbineInletCondition widget
+            self.le_TurbineInletCondition.setText(f"{T_sat:.2f}")
+            self.le_TurbineInletCondition.setEnabled(True)
 
         # endregion
         x = self.rdo_Quality.isChecked()
         self.lbl_TurbineInletCondition.setText(
-            ("Turbine Inlet: {}{} =".format('x' if x else 'THigh', '' if x else ('(C)' if SI else '(F)'))))
+            ("Turbine Inlet: {}{} =".format('x' if x else 'THigh',
+                                           '' if x else ('(C)' if SI else '(F)'))))
 
     def setNewPHigh(self, Model=None):
         """
-                 This function checks the self.rb_SI.isChecked() to see which units are used.
-                 Then, it sets the text of lbl_SatPropHigh using SatPropsIsobar(float(self.le_PHigh.text())*PCF, SI=SI).txtOut
-                 here, PCF is the pressure conversion factor
-                 finally, we need to call the function self.SelectQualityOrTHigh()
-                 :return:
-                 """
+        This function checks self.rb_SI.isChecked() to see which units are used.
+        Then, it sets the text of lbl_SatPropHigh using
+        SatPropsIsobar(float(self.le_PHigh.text())*PCF, SI=SI).txtOut,
+        where PCF is the pressure conversion factor.
+        Finally, we call the function self.SelectQualityOrTHigh() so T or x updates.
+        """
         #JES Missing Code
-        pass
+        SI = self.rb_SI.isChecked()
+        PCF = 1 if SI else UC.psi_to_bar  # user input is bar if SI, or psi if English
+        pHigh_bar = float(self.le_PHigh.text()) * PCF
+        Model.p_high = pHigh_bar
+        satPropsHigh = Model.steam.getsatProps_p(pHigh_bar)
+        self.lbl_SatPropHigh.setText(satPropsHigh.getTextOutput(SI=SI))
+        self.selectQualityOrTHigh(Model)
 
     def setNewPLow(self, Model=None):
         #JES Missing Code
-        pass
+        SI = self.rb_SI.isChecked()
+        PCF = 1 if SI else UC.psi_to_bar
+        pLow_bar = float(self.le_PLow.text()) * PCF
+        Model.p_low = pLow_bar
+        satPropsLow = Model.steam.getsatProps_p(pLow_bar)
+        self.lbl_SatPropLow.setText(satPropsLow.getTextOutput(SI=SI))
 
     def outputToGUI(self, Model=None):
         #unpack the args
@@ -121,25 +133,41 @@ class rankineView():
     def updateUnits(self, Model=None):
         """
         Updates the units on the GUI to match choice of SI or English
-        :param Model:  a reference to the model
-        :return:
         """
         #Step 0. update the outputs
         self.outputToGUI(Model=Model)
-        # Update units displayed on labels
 
         #Step 1. Update pressures for PHigh and PLow
         pCF=1 if Model.SI else UC.bar_to_psi
         #JES Missing Code
+        pHigh_display = Model.p_high * pCF
+        pLow_display  = Model.p_low  * pCF
+        self.le_PHigh.setText(f"{pHigh_display:.3f}")
+        self.le_PLow.setText(f"{pLow_display:.3f}")
 
         #Step 2. Update THigh if it is not None
         if not self.rdo_Quality.isChecked():
             #JES Missing Code
-            pass
+            if Model.t_high is not None:
+                if Model.SI:
+                    self.le_TurbineInletCondition.setText(f"{Model.t_high:.2f}")
+                else:
+                    self.le_TurbineInletCondition.setText(f"{UC.C_to_F(Model.t_high):.2f}")
 
         #Step 3. Update the units for labels
         #JES Missing Code
-        pass
+        if Model.SI:
+            enthalpyUnits = "kJ/kg"
+        else:
+            enthalpyUnits = "BTU/lb"
+
+        self.lbl_H1Units.setText(enthalpyUnits)
+        self.lbl_H2Units.setText(enthalpyUnits)
+        self.lbl_H3Units.setText(enthalpyUnits)
+        self.lbl_H4Units.setText(enthalpyUnits)
+        self.lbl_TurbineWorkUnits.setText(enthalpyUnits)
+        self.lbl_PumpWorkUnits.setText(enthalpyUnits)
+        self.lbl_HeatAddedUnits.setText(enthalpyUnits)
 
     def print_summary(self, Model=None):
         """
@@ -163,27 +191,12 @@ class rankineView():
     def plot_cycle_TS(self, axObj=None, Model=None):
         """
         I want to plot the Rankine cycle on T-S coordinates along with the vapor dome and shading in the cycle.
-        I notice there are several lines on the plot:
-        saturated liquid T(s) colored blue
-        saturated vapor T(s) colored red
-        The high and low isobars and lines connecting state 1 to 2, and 3 to saturated liquid at phigh
-        step 1:  build data for saturated liquid line
-        step 2:  build data for saturated vapor line
-        step 3:  build data between state 3 and sat liquid at p_high
-        step 4:  build data between sat liquid at p_high and state 1
-        step 5:  build data between state 1 and state 2
-        step 6:  build data between state 2 and state 3
-        step 7:  put together data from 3,4,5 for top line and build bottom line
-        step 8:  make and decorate plot
-
-        Note:  will plot using pyplot if axObj is None else just returns
-
-        :param axObj:  if None, used plt.subplot else a MatplotLib axes object.
-        :return:
+        ...
+        Code below remains unchanged
         """
         SI=Model.SI
         steam=Model.steam
-        #region step 1&2:
+        # region step 1&2:
         ts, ps, hfs, hgs, sfs, sgs, vfs, vgs = np.loadtxt('sat_water_table.txt', skiprows=1,
                                                           unpack=True)  # use np.loadtxt to read the saturated properties
         ax = plt.subplot() if axObj is None else axObj
@@ -209,9 +222,9 @@ class rankineView():
 
         ax.plot(xfsat, yfsat, color='blue')
         ax.plot(xgsat, ygsat, color='red')
-        #endregion
+        # endregion
 
-        #step 3:  I'll just make a straight line between state3 and state3p
+        # step 3:  I'll just make a straight line between state3 and state3p
         st3p=steam.getState(Model.p_high,x=0) #saturated liquid state at p_high
         svals=np.linspace(Model.state3.s, st3p.s, 20)
         hvals=np.linspace(Model.state3.h, st3p.h, 20)
@@ -220,7 +233,7 @@ class rankineView():
         tvals=np.linspace(Model.state3.T, st3p.T, 20)
         line3=np.column_stack([svals, tvals])
 
-        #step 4:
+        # step 4:
         sat_pHigh=steam.getState(Model.p_high, x=1.0)
         st1=Model.state1
         svals2p=np.linspace(st3p.s, sat_pHigh.s, 20)
@@ -233,22 +246,16 @@ class rankineView():
             svals_sh=np.linspace(sat_pHigh.s,st1.s, 20)
             tvals_sh=np.array([steam.getState(Model.p_high,s=ss).T for ss in svals_sh])
             line4 =np.append(line4, np.column_stack([svals_sh, tvals_sh]), axis=0)
-        #plt.plot(line4[:,0], line4[:,1])
 
-        #step 5:
         svals=np.linspace(Model.state1.s, Model.state2.s, 20)
         tvals=np.linspace(Model.state1.T, Model.state2.T, 20)
         line5=np.array(svals)
         line5=np.column_stack([line5, tvals])
-        #plt.plot(line5[:,0], line5[:,1])
 
-        #step 6:
         svals=np.linspace(Model.state2.s, Model.state3.s, 20)
         tvals=np.array([Model.state2.T for i in range(20)])
         line6=np.column_stack([svals, tvals])
-        #plt.plot(line6[:,0], line6[:,1])
 
-        #step 7:
         topLine=np.append(line3, line4, axis=0)
         topLine=np.append(topLine, line5, axis=0)
         xvals=topLine[:,0]
@@ -264,7 +271,6 @@ class rankineView():
 
         ax.plot(xvals, y1, color='darkgreen')
         ax.plot(xvals, y2, color='black')
-        # ax.fill_between(xvals, y1, y2, color='gray', alpha=0.5)
 
         if SI:
             ax.plot(Model.state1.s, Model.state1.T, marker='o', markeredgecolor='k', markerfacecolor='w')
@@ -277,32 +283,29 @@ class rankineView():
 
         tempUnits=r'$\left(^oC\right)$' if SI else r'$\left(^oF\right)$'
         entropyUnits=r'$\left(\frac{kJ}{kg\cdot K}\right)$' if SI else r'$\left(\frac{BTU}{lb\cdot ^oR}\right)$'
-        ax.set_xlabel(r's '+entropyUnits, fontsize=18)  #different than plt
-        ax.set_ylabel(r'T '+tempUnits, fontsize=18)  #different than plt
-        ax.set_title(Model.name)  #different than plt
+        ax.set_xlabel(r's '+entropyUnits, fontsize=18)
+        ax.set_ylabel(r'T '+tempUnits, fontsize=18)
+        ax.set_title(Model.name)
         ax.grid(visible='both', alpha=0.5)
         ax.tick_params(axis='both', direction='in', labelsize=18)
 
         sMin=min(sfs)
         sMax=max(sgs)
-        ax.set_xlim(sMin, sMax)  #different than plt
+        ax.set_xlim(sMin, sMax)
 
         tMin=min(ts)
         tMax=max(max(ts),st1.T)
-        ax.set_ylim(tMin,tMax*1.05)  #different than plt
+        ax.set_ylim(tMin,tMax*1.05)
 
         energyUnits=r'$\frac{kJ}{kg}$' if SI else r'$\frac{BTU}{lb}$'
         energyCF = 1 if SI else UC.kJperkg_to_BTUperlb
 
-        if axObj is None:  # this allows me to show plot if not being displayed on a figure
+        if axObj is None:
             plt.show()
 
     def plot_cycle_XY(self, Model=None):
         """
         I want to plot any two thermodynaimc properties on X and Y
-        :param X: letter for which variable to plot on X axis
-        :param Y: letter for which variable to plot on Y axis
-        :return:
         """
         ax=self.ax
         X = self.cmb_XAxis.currentText()
@@ -330,20 +333,14 @@ class rankineView():
         # plot the upper and lower curves
         ax.plot(Model.lowerCurve.getDataCol(X, SI=SI), Model.lowerCurve.getDataCol(Y, SI=SI), color='k')
         ax.plot(Model.upperCurve.getDataCol(X, SI=SI), Model.upperCurve.getDataCol(Y, SI=SI), color='g')
-        # ax.fill_between(Model.upperCurve.getDataCol(X), Model.upperCurve.getDataCol(Y), self.lowerCurve.getDataCol(Y), color='grey', alpha=0.2)
 
-        # add axis labels
         ax.set_ylabel(Model.lowerCurve.getAxisLabel(Y, SI=SI), fontsize='large' if QTPlotting else 'medium')
         ax.set_xlabel(Model.lowerCurve.getAxisLabel(X, SI=SI), fontsize='large' if QTPlotting else 'medium')
-        # put a title on the plot
         Model.name = 'Rankine Cycle - ' + Model.state1.region + ' at Turbine Inlet'
         ax.set_title(Model.name, fontsize='large' if QTPlotting else 'medium')
-
-        # modify the tick marks
         ax.tick_params(axis='both', which='both', direction='in', top=True, right=True,
-                       labelsize='large' if QTPlotting else 'medium')  # format tick marks
+                       labelsize='large' if QTPlotting else 'medium')
 
-        # plot the circles for states 1, 2, 3, and 4
         ax.plot(Model.state1.getVal(X, SI=SI), Model.state1.getVal(Y, SI=SI), marker='o', markerfacecolor='w',
                 markeredgecolor='k')
         ax.plot(Model.state2.getVal(X, SI=SI), Model.state2.getVal(Y, SI=SI), marker='o', markerfacecolor='w',
@@ -352,7 +349,7 @@ class rankineView():
                 markeredgecolor='k')
         ax.plot(Model.state4.getVal(X, SI=SI), Model.state4.getVal(Y, SI=SI), marker='o', markerfacecolor='w',
                 markeredgecolor='k')
-        # set limits on x and y
+
         xmin = min(min(XF), min(XG), min(Model.upperCurve.getDataCol(X, SI=SI)), max(Model.lowerCurve.getDataCol(X, SI=SI)))
         xmax = max(max(XF), max(XG), max(Model.upperCurve.getDataCol(X, SI=SI)), max(Model.lowerCurve.getDataCol(X, SI=SI)))
         ymin = min(min(YF), min(YG), min(Model.upperCurve.getDataCol(Y, SI=SI)), max(Model.lowerCurve.getDataCol(Y, SI=SI)))
@@ -362,9 +359,6 @@ class rankineView():
         ax.set_ylim(ymin, ymax)
         deltax = xmax - xmin
         deltay = ymax - ymin
-        # add the summary text to the plot
-
-        # show the plot
         if QTPlotting == False:
             plt.show()
         else:
@@ -378,26 +372,23 @@ class rankineController():
         :param *args: a tuple containing widgets that get updated in the View
         """
         self.Model=rankineModel()  # In MVC pattern, the controller should hold a reference to the model
-        self.View=rankineView()  # In MVC pattern, the controller should hold a reference to the view
-        self.IW=args[0]  # an array of widgets that are for user input
-        self.DW=args[1]  # an array of widgets that are for display
+        self.View=rankineView()    # In MVC pattern, the controller should hold a reference to the view
+        self.IW=args[0]           # an array of widgets that are for user input
+        self.DW=args[1]           # an array of widgets that are for display
         self.View.setWidgets(self.IW, self.DW)
         self.buildVaporDomeData()
 
     def updateModel(self):
         """
         I'm expecting a tuple of input widgets from the GUI.  Read and apply them here.
-        :param args: a tuple of input widgets, other arguments such as SI or ENG
-        :return: nothing
         """
         #read from the input widgets
         self.Model.SI=self.View.rb_SI.isChecked()
 
-        #update the model
         #$UNITS$ since inputs can be SI or English, I need to convert to SI here for pressures and temperature
-        PCF=1 if self.Model.SI else UC.psi_to_bar #$UNITS$ input is bar for SI and psi for English
-        self.Model.p_high = float(self.View.le_PHigh.text()) * PCF  # get the high pressure isobar in kPa
-        self.Model.p_low = float(self.View.le_PLow.text()) * PCF  # get the low pressure isobar in kPa
+        PCF=1 if self.Model.SI else UC.psi_to_bar #$UNITS$
+        self.Model.p_high = float(self.View.le_PHigh.text()) * PCF
+        self.Model.p_low = float(self.View.le_PLow.text()) * PCF
         T=float(self.View.le_TurbineInletCondition.text()) #$UNITS$
         self.Model.t_high = None if self.View.rdo_Quality.isChecked() else (T if self.Model.SI else UC.F_to_C(T)) #$UNITS$
         self.Model.turbine_eff = float(self.View.le_TurbineEff.text())
@@ -425,11 +416,8 @@ class rankineController():
         I've modified this on 4/15/2022 to use a single SI_Steam object that is held in the model for calculating
         various states along the path of the Rankine cycle.  I use the getState function to retrieve a deep copy of
         a stateProps object.
-        :return:
         """
         steam=self.Model.steam
-
-        # calculate the 4 states
         # state 1: turbine inlet (p_high, t_high) superheated or saturated vapor
         if (self.Model.t_high == None):
             self.Model.state1 = steam.getState(P=self.Model.p_high, x=1.0, name='Turbine Inlet')
@@ -448,8 +436,8 @@ class rankineController():
         self.Model.state4 = steam.getState(P=self.Model.p_high, s=self.Model.state3.s, name='Pump Exit')
 
         self.Model.turbine_work = self.Model.state1.h - self.Model.state2.h  # calculate turbine work
-        self.Model.pump_work = self.Model.state4.h - self.Model.state3.h  # calculate pump work
-        self.Model.heat_added = self.Model.state1.h - self.Model.state4.h  # calculate heat added
+        self.Model.pump_work = self.Model.state4.h - self.Model.state3.h     # calculate pump work
+        self.Model.heat_added = self.Model.state1.h - self.Model.state4.h    # calculate heat added
         self.Model.efficiency = 100.0 * (self.Model.turbine_work - self.Model.pump_work) / self.Model.heat_added
         return self.Model.efficiency
 
@@ -457,21 +445,14 @@ class rankineController():
         """
         This is a pass-through function that calls and identically named function in the View, but passes along the
         Model as an argument.
-        :param args: A tuple of Widgets that get unpacked and updated in the view
-        :return:
         """
         self.buildDataForPlotting()
         self.View.outputToGUI(Model=self.Model)
 
     def setRankine(self,p_low=8, p_high=8000, t_high=None, eff_turbine=1.0, name='Rankine Cycle'):
         '''
-        Set model values for rankine power cycle.  If t_high is not specified, the State 1
-        is assigned x=1 (saturated steam @ p_high).  Otherwise, use t_high to find State 1.
-        :param p_low: the low pressure isobar for the cycle in kPa
-        :param p_high: the high pressure isobar for the cycle in kPa
-        :param t_high: optional temperature for State1 (turbine inlet) in degrees C
-        :param eff_turbine: isentropic efficiency of the turbine
-        :param name: a convenient name
+        Set model values for rankine power cycle.  If t_high is not specified, State 1 is assigned x=1.0 (sat steam).
+        Otherwise, use t_high to find State 1.
         '''
         self.Model.p_low=p_low
         self.Model.p_high=p_high
@@ -482,24 +463,21 @@ class rankineController():
         self.Model.turbine_work=0
         self.Model.pump_work=0
         self.Model.heat_added=0
-        self.Model.state1=None  # entrance to turbine
-        self.Model.state2s=None  # entrance to condenser (isentropic turbine)
-        self.Model.state2=None  # entrance to condenser (non-isentropic turbine)
-        self.Model.state3=None  # entrance to pump (saturated liquid at plow)
-        self.Model.state4=None  # entrance to boiler (isentropic)
+        self.Model.state1=None
+        self.Model.state2s=None
+        self.Model.state2=None
+        self.Model.state3=None
+        self.Model.state4=None
 
     def print_summary(self):
         """
         A pass-thrugh method for accessing View and passing Model.
-        :return:
         """
         self.View.print_summary(Model=self.Model)
 
     def buildVaporDomeData(self, nPoints=500):
         """
         I'll build the vapor dome from just above the triple point up to the critical point
-        :param nPoints:
-        :return:
         """
         steam=self.Model.steam
         tp=triplePt_PT()
@@ -519,24 +497,20 @@ class rankineController():
     def buildDataForPlotting(self):
         """
         I want to create data for plotting the Rankine cycle.  The key states are:
-        State 1.  Entrance to Turbine (either saturated vapor or superheated steam at p_High)
-        State 2.  Entrance to Condenser (probably two-phase at p_Low)
-        State 3.  Entrance to the pump (saturated liquid at p_Low)
-        State 4.  Entrance to the boiler (sub-cooled liquid at p_High, isentropic pump)
-        
-        I want to create h, s, v, p, T data between states 1-2, 2-3, 3-4, 4-1
-        I'll piece together an upperCurve data set from 3-4 + 4-1 + 1-2
-        The lowerCurve data set is 2-3
-        :return:
+         1) state1: Entrance to Turbine
+         2) state2: Entrance to condenser
+         3) state3: Entrance to pump
+         4) state4: Entrance to boiler
+        I'll piece an upperCurve data set from 3->4->1->2, and the lowerCurve from 2->3
         """
         # clear out any old data
         self.Model.upperCurve.clear()
         self.Model.lowerCurve.clear()
-        
+
         #get saturated properties at PHigh and PLow
         satPLow=self.Model.steam.getsatProps_p(self.Model.p_low)
         satPHigh=self.Model.steam.getsatProps_p(self.Model.p_high)
-        
+
         steam = self.Model.steam
 
         #region build upperCurve
@@ -547,10 +521,9 @@ class rankineController():
             z = n * 1.0 / (nPts - 1)
             state = steam.getState(P=(satPLow.psat + z * DeltaP), s=satPLow.sf)
             self.Model.upperCurve.addPt((state.t, state.p, state.u, state.h, state.s, state.v))
-        # endregion
+        #endregion
 
         #region states from 4-1
-        #first from T4 to T5 where T5 is the saturated liquid at p_High
         T4 = state.t
         T5 = satPHigh.tsat
         DeltaT = (T5 - T4)
@@ -574,17 +547,16 @@ class rankineController():
                 if z>0:
                     state = steam.getState(satPHigh.psat, T=T6+z*DeltaT)
                     self.Model.upperCurve.addPt((state.t, state.p, state.u, state.h, state.s, state.v))
-        # endregion
+        #endregion
 
         #region states between 1 and 2
-        #I'm assuming a linear change in Pressure from P1 to P2, along with linear change in s,
-        #but not sure of details inside the turbine, so this is just a guess.
         s1=self.Model.state1.s
         s2=self.Model.state2.s
         P1=self.Model.state1.p
         P2=self.Model.state2.p
         Deltas=s2-s1
         DeltaP=P2-P1
+        nPts=20
         for n in range(nPts):
             z = n * 1.0 / (nPts - 1)
             state = steam.getState(P=P1+z*DeltaP, s=s1+z*Deltas)
@@ -595,7 +567,6 @@ class rankineController():
         #region build lowerCurve between states 2 and 3
         x2=self.Model.state2.x
         state=self.Model.state2
-        #account for possibility that T>TSatPHigh
         if state.t>satPLow.tsat:
             nPts=20
             DeltaT=(state.t-satPLow.tsat)/nPts
